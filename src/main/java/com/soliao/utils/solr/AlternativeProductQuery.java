@@ -105,8 +105,11 @@ public class AlternativeProductQuery extends CustomScoreQuery {
                     double beRep = Double.valueOf((String) entry.getValue());
                     double rep = field.numericValue().doubleValue();
                     double sub = Math.max(beRep, rep) - Math.min(beRep, rep);
-                    double value = subMap.get(qname);
-                    similar = 1 - sub / value;
+                    /*double value = subMap.get(qname);*/
+                    if (sub > Math.max(beRep, rep))
+                        similar = 0;
+                    else
+                        similar = 1 - sub / Math.max(beRep, rep);
                 }
                 if (weightList.isEmpty()) {
                     similarSum += similar * (1D / subMap.size()) * 100D;
