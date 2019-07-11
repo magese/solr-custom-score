@@ -104,12 +104,12 @@ public class AlternativeProductQuery extends CustomScoreQuery {
                     // 如果字段为数值类型，则对该数值进行相似度计算
                     double beRep = Double.valueOf((String) entry.getValue());
                     double rep = field.numericValue().doubleValue();
-                    double sub = Math.max(beRep, rep) - Math.min(beRep, rep);
+                    double max = Math.max(beRep, rep);
+                    double sub = max - Math.min(beRep, rep);
                     /*double value = subMap.get(qname);*/
-                    if (sub > Math.max(beRep, rep))
-                        similar = 0;
-                    else
-                        similar = 1 - sub / Math.max(beRep, rep);
+                    if (sub > max) similar = 0;
+                    else if (sub == 0) similar = 1;
+                    else if (max != 0) similar = 1 - sub / max;
                 }
                 if (weightList.isEmpty()) {
                     similarSum += similar * (1D / subMap.size()) * 100D;
