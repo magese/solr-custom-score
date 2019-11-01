@@ -75,17 +75,20 @@ public class AlternativeProductQuery extends CustomScoreQuery {
             // 获取每个文档中用于评分的域
             double similarSum = 0;
             double idScore = 0;
+            boolean fillersFlag = false;
             Document document = indexReader.document(doc);
             for (Map.Entry<String, Object> entry : queryParamMap.entrySet()) {
                 String qname = entry.getKey();
 
                 // 如果为不评分字段或无该字段则跳过当次循环
-                if (!qname.startsWith("rep_") && !"id".equals(qname)) continue;
+                if (!(qname.startsWith("rep_") ||
+                        "id".equals(qname) ||
+                        "fillers".equals(qname) ||
+                        "fillersContent".equals(qname))) continue;
                 IndexableField field = document.getField(qname);
                 if (field == null) continue;
 
                 // 定义相似值
-                double similar = 0;
                 if ("id".equals(qname)) {
                     // 如果查询参数中有id字段
                     double multiple = 1D;
@@ -95,30 +98,71 @@ public class AlternativeProductQuery extends CustomScoreQuery {
                         if (id.contains("^")) {
                             String[] split = id.split("\\^");
                             id = split[0];
-                            multiple = Double.valueOf(split[1]);
+                            multiple = Double.parseDouble(split[1]);
                         }
                         if (id.equals(field.stringValue()))
                             idScore += 1 * multiple;
                     }
+                } else if ("fillers".equals(qname)) {
+                    String beRep = (String) entry.getValue();
+                    String rep = field.stringValue();
+                    if (beRep.equals(rep)) {
+                        fillersFlag = true;
+                        similarSum += 15;
+                    }
+                } else if ("fillersContent".equals(qname)) {
+                    String beRep = (String) entry.getValue();
+                    String rep = field.stringValue();
+                    if (beRep.equals(rep) && fillersFlag)
+                        similarSum += 15;
+                } else if ("rep_mfr".equals(qname)) {
+                    double maxSub = 2;
+                    double score = 20;
+                    double beRep = Double.parseDouble((String) entry.getValue());
+                    double rep = field.numericValue().doubleValue();
+                    similarSum += getFieldScore(beRep, rep, maxSub, score);
+                } else if ("rep_mvr".equals(qname)) {
+                    double maxSub = 2;
+                    double score = 20;
+                    double beRep = Double.parseDouble((String) entry.getValue());
+                    double rep = field.numericValue().doubleValue();
+                    similarSum += getFieldScore(beRep, rep, maxSub, score);
+                } else if ("rep_density".equals(qname)) {
+                    double maxSub = 2;
+                    double score = 10;
+                    double beRep = Double.parseDouble((String) entry.getValue());
+                    double rep = field.numericValue().doubleValue();
+                    similarSum += getFieldScore(beRep, rep, maxSub, score);
+                } else if ("rep_fr".equals(qname)) {
+                    double score = 20.0 / subMap.size();
+                    double beRep = Double.parseDouble((String) entry.getValue());
+                    double rep = field.numericValue().doubleValue();
+                    if (beRep == rep)
+                        similarSum += score;
                 } else if (subMap.containsKey(qname)) {
                     // 如果字段为数值类型，则对该数值进行相似度计算
-                    double beRep = Double.valueOf((String) entry.getValue());
+                    double beRep = Double.parseDouble((String) entry.getValue());
                     double rep = field.numericValue().doubleValue();
-                    double max = Math.max(beRep, rep);
+                    double maxSub = Math.max(beRep, rep);
+                    double score = 20.0 / subMap.size();
+                    similarSum += getFieldScore(beRep, rep, maxSub, score);
+                    /*double max = Math.max(beRep, rep);
                     double sub = max - Math.min(beRep, rep);
-                    /*double value = subMap.get(qname);*/
+                    double value = subMap.get(qname);
                     if (sub == 0) similar = 1;
                     else if (sub > max || "rep_fr".equals(qname)) similar = 0;
                     else if (max != 0) similar = 1 - sub / max;
-                    else similar = 0;
+                    else similar = 0;*/
+
                 }
-                if (weightList.isEmpty()) {
+
+                /*if (weightList.isEmpty()) {
                     similarSum += similar * (1D / subMap.size()) * 100D;
                 } else {
                     similarSum += similar * (1D / subMap.size()) * 0.01D;
                     if (weightList.contains(qname))
                         similarSum += similar * (1D / weightList.size()) * 99.99D;
-                }
+                }*/
             }
             float customScore;
             if (subMap.isEmpty()) {
@@ -127,6 +171,29 @@ public class AlternativeProductQuery extends CustomScoreQuery {
                 customScore = (float) (similarSum + idScore);
             }
             return customScore;
+        }
+
+        /**
+         * 获取字段的得分
+         *
+         * @param beRep  被替代字段数值
+         * @param rep    替代字段数值
+         * @param maxSub 最大差值
+         * @param score  该字段分数
+         * @return 该字段最终得分
+         */
+        private double getFieldScore(double beRep, double rep, double maxSub, double score) {
+            double max = Math.max(beRep, rep);
+            double sub = max - Math.min(beRep, rep);
+            if (sub > maxSub) return 0;
+
+            double similar;
+            if (sub == 0) similar = 1;
+            else if (sub > max) similar = 0;
+            else if (max != 0) similar = 1 - sub / max;
+            else similar = 0;
+
+            return score * similar;
         }
 
         @Override
