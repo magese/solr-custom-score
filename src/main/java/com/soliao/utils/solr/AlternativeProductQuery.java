@@ -147,7 +147,7 @@ public class AlternativeProductQuery extends CustomScoreQuery {
             String[] customWeightArray = {"rep_mfr", "rep_mvr", "rep_density"};
             List<String> customWeightFields = new ArrayList<>(Arrays.asList(customWeightArray));
             // 权重map
-            Map<String, Double> weightMap = new HashMap<>();
+            Map<String, Double> weightMap = new LinkedHashMap<>();
             weightMap.put("fillers", 15.0);
             weightMap.put("fillersContent", 15.0);
             weightMap.put("rep_mfr", 20.0);
