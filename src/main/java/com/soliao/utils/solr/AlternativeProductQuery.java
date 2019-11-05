@@ -91,7 +91,7 @@ public class AlternativeProductQuery extends CustomScoreQuery {
                     }
                 } else if ("fillersContent".equals(fieldName) && fillersFlag && (beRep == null && rep == null) || (rep != null && rep.stringValue().equals(beRep))) {
                     similar = 1;
-                } else if ("rep_fr".equals(fieldName) && rep != null && (double) beRep == rep.numericValue().doubleValue()) {
+                } else if ("rep_fr".equals(fieldName) && rep != null && Double.parseDouble((String) beRep) == rep.numericValue().doubleValue()) {
                     similar = 1;
                 } else if (fieldName.startsWith("rep_") && rep != null) {
                     similar = getFieldSimilar(Double.parseDouble((String) beRep), rep.numericValue().doubleValue(), limitMap.get(fieldName));
