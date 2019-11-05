@@ -57,115 +57,61 @@ public class AlternativeProductQuery extends CustomScoreQuery {
         public float customScore(int doc, float subQueryScore, float[] valSrcScores) throws IOException {
             IndexReader indexReader = this.context.reader();
             SolrParams solrParams = getSolrParams();
+
             // 获取查询请求参数q
             String[] queryParams = solrParams.getParams("q");
             Map<String, Object> queryParamMap = generateQueryMap(queryParams);
-            // 获取查询请求wd
+            // 获取查询请求加权字段
             String[] wgs = solrParams.getParams(WEIGHT);
-            Set<String> weightList = generateWidthList(wgs);
-
-            // 获取最大值与最小值的差值map
-            Map<String, Double> subMap = new LinkedHashMap<>();
-            for (String key : queryParamMap.keySet()) {
-                String[] params = solrParams.getParams(SUB_PRE + key);
-                if (params != null)
-                    subMap.put(key, Double.valueOf(params[0]));
-            }
+            Set<String> weightList = generateWeightList(wgs);
+            // 获取边界值map
+            Map<String, Double> limitMap = generateLimitMap(queryParamMap);
+            // 获取字段默认权重
+            Map<String, Double> weightMap = generateDefaultWeightMap(limitMap);
 
             // 获取每个文档中用于评分的域
             double similarSum = 0;
             double idScore = 0;
+            double weightScore = 100.0 / weightList.size();
             boolean fillersFlag = false;
             Document document = indexReader.document(doc);
-            for (Map.Entry<String, Object> entry : queryParamMap.entrySet()) {
-                String qname = entry.getKey();
 
-                // 如果为不评分字段或无该字段则跳过当次循环
-                if (!(qname.startsWith("rep_") ||
-                        "id".equals(qname) ||
-                        "fillers".equals(qname) ||
-                        "fillersContent".equals(qname))) continue;
-                IndexableField field = document.getField(qname);
-                if (field == null) continue;
+            // 计算相似度得分
+            for (Map.Entry<String, Double> entry : weightMap.entrySet()) {
+                String fieldName = entry.getKey();
 
-                // 定义相似值
-                if ("id".equals(qname)) {
-                    // 如果查询参数中有id字段
-                    double multiple = 1D;
-                    @SuppressWarnings("unchecked")
-                    List<String> ids = (List<String>) entry.getValue();
-                    for (String id : ids) {
-                        if (id.contains("^")) {
-                            String[] split = id.split("\\^");
-                            id = split[0];
-                            multiple = Double.parseDouble(split[1]);
-                        }
-                        if (id.equals(field.stringValue()))
-                            idScore += 1 * multiple;
-                    }
-                } else if ("fillers".equals(qname)) {
-                    String beRep = (String) entry.getValue();
-                    String rep = field.stringValue();
-                    if (beRep.equals(rep)) {
+                Object beRep = queryParamMap.get(fieldName);
+                IndexableField rep = document.getField(fieldName);
+
+                double similar = 0;
+                if ("fillers".equals(fieldName)) {
+                    if ((beRep == null && rep == null) || (rep != null && rep.stringValue().equals(beRep))) {
+                        similar = 1;
                         fillersFlag = true;
-                        similarSum += 15;
                     }
-                } else if ("fillersContent".equals(qname)) {
-                    String beRep = (String) entry.getValue();
-                    String rep = field.stringValue();
-                    if (beRep.equals(rep) && fillersFlag)
-                        similarSum += 15;
-                } else if ("rep_mfr".equals(qname)) {
-                    double maxSub = 2;
-                    double score = 20;
-                    double beRep = Double.parseDouble((String) entry.getValue());
-                    double rep = field.numericValue().doubleValue();
-                    similarSum += getFieldScore(beRep, rep, maxSub, score);
-                } else if ("rep_mvr".equals(qname)) {
-                    double maxSub = 2;
-                    double score = 20;
-                    double beRep = Double.parseDouble((String) entry.getValue());
-                    double rep = field.numericValue().doubleValue();
-                    similarSum += getFieldScore(beRep, rep, maxSub, score);
-                } else if ("rep_density".equals(qname)) {
-                    double maxSub = 2;
-                    double score = 10;
-                    double beRep = Double.parseDouble((String) entry.getValue());
-                    double rep = field.numericValue().doubleValue();
-                    similarSum += getFieldScore(beRep, rep, maxSub, score);
-                } else if ("rep_fr".equals(qname)) {
-                    double score = 20.0 / subMap.size();
-                    double beRep = Double.parseDouble((String) entry.getValue());
-                    double rep = field.numericValue().doubleValue();
-                    if (beRep == rep)
-                        similarSum += score;
-                } else if (subMap.containsKey(qname)) {
-                    // 如果字段为数值类型，则对该数值进行相似度计算
-                    double beRep = Double.parseDouble((String) entry.getValue());
-                    double rep = field.numericValue().doubleValue();
-                    double maxSub = Math.max(beRep, rep);
-                    double score = 20.0 / subMap.size();
-                    similarSum += getFieldScore(beRep, rep, maxSub, score);
-                    /*double max = Math.max(beRep, rep);
-                    double sub = max - Math.min(beRep, rep);
-                    double value = subMap.get(qname);
-                    if (sub == 0) similar = 1;
-                    else if (sub > max || "rep_fr".equals(qname)) similar = 0;
-                    else if (max != 0) similar = 1 - sub / max;
-                    else similar = 0;*/
-
+                } else if ("fillersContent".equals(fieldName) && fillersFlag && (beRep == null && rep == null) || (rep != null && rep.stringValue().equals(beRep))) {
+                    similar = 1;
+                } else if ("rep_fr".equals(fieldName) && rep != null && (double) beRep == rep.numericValue().doubleValue()) {
+                    similar = 1;
+                } else if (fieldName.startsWith("rep_") && rep != null) {
+                    similar = getFieldSimilar(Double.parseDouble((String) beRep), rep.numericValue().doubleValue(), limitMap.get(fieldName));
                 }
 
-                /*if (weightList.isEmpty()) {
-                    similarSum += similar * (1D / subMap.size()) * 100D;
-                } else {
-                    similarSum += similar * (1D / subMap.size()) * 0.01D;
-                    if (weightList.contains(qname))
-                        similarSum += similar * (1D / weightList.size()) * 99.99D;
-                }*/
+                similarSum += similar * weightMap.getOrDefault(fieldName, 0.0);
+                if (weightList.contains(fieldName)) {
+                    similarSum += getWeightScore(similar, weightScore);
+                }
             }
+            // 计算id得分
+            if (queryParamMap.get("id") != null) {
+                @SuppressWarnings("unchecked")
+                List<String> ids = (List<String>) queryParamMap.get("id");
+                String id = document.getField("id").stringValue();
+                idScore += getIdScore(id, ids);
+            }
+            // 计算最终得分
             float customScore;
-            if (subMap.isEmpty()) {
+            if (limitMap.isEmpty()) {
                 customScore = subQueryScore;
             } else {
                 customScore = (float) (similarSum + idScore);
@@ -174,26 +120,135 @@ public class AlternativeProductQuery extends CustomScoreQuery {
         }
 
         /**
-         * 获取字段的得分
+         * 生成边界值映射
          *
-         * @param beRep  被替代字段数值
-         * @param rep    替代字段数值
-         * @param maxSub 最大差值
-         * @param score  该字段分数
-         * @return 该字段最终得分
+         * @param queryParamMap 查询参数映射
+         * @return 边界值映射
          */
-        private double getFieldScore(double beRep, double rep, double maxSub, double score) {
+        private Map<String, Double> generateLimitMap(Map<String, Object> queryParamMap) {
+            Map<String, Double> limitMap = new LinkedHashMap<>();
+            for (String key : queryParamMap.keySet()) {
+                String[] params = solrParams.getParams(SUB_PRE + key);
+                if (params != null)
+                    limitMap.put(key, Double.valueOf(params[0]));
+            }
+            return limitMap;
+        }
+
+        /**
+         * 生成默认的评分权重映射
+         *
+         * @param limitMap 边界值映射
+         * @return 权重映射
+         */
+        private Map<String, Double> generateDefaultWeightMap(Map<String, Double> limitMap) {
+            double residueScore = 0;
+            // 自定义权重字段
+            String[] customWeightArray = {"rep_mfr", "rep_mvr", "rep_density"};
+            List<String> customWeightFields = new ArrayList<>(Arrays.asList(customWeightArray));
+            // 权重map
+            Map<String, Double> weightMap = new HashMap<>();
+            weightMap.put("fillers", 15.0);
+            weightMap.put("fillersContent", 15.0);
+            weightMap.put("rep_mfr", 20.0);
+            weightMap.put("rep_mvr", 20.0);
+            weightMap.put("rep_density", 10.0);
+            // 剔除被替代牌号没有的自定义字段
+            for (String field : customWeightArray) {
+                if (limitMap.get(field) == null) {
+                    residueScore += weightMap.remove(field);
+                    customWeightFields.remove(field);
+                }
+            }
+            // 计算其它字段得分
+            for (Map.Entry<String, Double> entry : limitMap.entrySet()) {
+                if (customWeightFields.contains(entry.getKey())) continue;
+                weightMap.put(entry.getKey(), 20.0 / (limitMap.size() - customWeightFields.size()));
+            }
+            // 如果被替代牌号无自定义分值字段，则将该字段分值平均分配给其它字段
+            if (residueScore > 0) {
+                double avgScore = residueScore / weightMap.size();
+                weightMap.replaceAll((k, v) -> v + avgScore);
+            }
+            return weightMap;
+        }
+
+        /**
+         * 获取加权字段得分
+         *
+         * @param similar     相似度
+         * @param weightScore 加权分数
+         * @return 加权得分
+         */
+        private double getWeightScore(double similar, double weightScore) {
+            double score;
+            if (similar == 1) {
+                score = weightScore * similar;
+            } else if (similar > 0.9) {
+                score = weightScore / 2 * similar;
+            } else if (similar > 0.8) {
+                score = weightScore / (2 * 2) * similar;
+            } else if (similar > 0.7) {
+                score = weightScore / (2 * 3) * similar;
+            } else if (similar > 0.6) {
+                score = weightScore / (2 * 4) * similar;
+            } else if (similar > 0.5) {
+                score = weightScore / (2 * 5) * similar;
+            } else if (similar > 0.4) {
+                score = weightScore / (2 * 6) * similar;
+            } else if (similar > 0.3) {
+                score = weightScore / (2 * 7) * similar;
+            } else if (similar > 0.2) {
+                score = weightScore / (2 * 8) * similar;
+            } else if (similar > 0.1) {
+                score = weightScore / (2 * 9) * similar;
+            } else {
+                score = weightScore / (2 * 10) * similar;
+            }
+            return score;
+        }
+
+        /**
+         * 获取id加权的评分结果
+         *
+         * @param docId 文档id
+         * @param ids   加权id集合
+         * @return 最终得分
+         */
+        private double getIdScore(String docId, List<String> ids) {
+            double idScore = 0;
+            double multiple = 1D;
+            for (String id : ids) {
+                if (id.contains("^")) {
+                    String[] split = id.split("\\^");
+                    id = split[0];
+                    multiple = Double.parseDouble(split[1]);
+                }
+                if (id.equals(docId))
+                    idScore = 1 * multiple;
+            }
+            return idScore;
+        }
+
+        /**
+         * 获取字段相似度
+         *
+         * @param beRep      被替代字段数值
+         * @param rep        替代字段数值
+         * @param limitValue 边界值
+         * @return 该字段相似度
+         */
+        private double getFieldSimilar(double beRep, double rep, double limitValue) {
             double max = Math.max(beRep, rep);
             double sub = max - Math.min(beRep, rep);
-            if (sub > maxSub) return 0;
 
             double similar;
             if (sub == 0) similar = 1;
-            else if (sub > max) similar = 0;
-            else if (max != 0) similar = 1 - sub / max;
+            else if (sub > limitValue) similar = 0;
+            else if (max != 0) similar = 1 - sub / limitValue;
             else similar = 0;
 
-            return score * similar;
+            return similar;
         }
 
         @Override
@@ -241,7 +296,7 @@ public class AlternativeProductQuery extends CustomScoreQuery {
          * @param params 参数数组
          * @return 加权字段集合
          */
-        private Set<String> generateWidthList(String[] params) {
+        private Set<String> generateWeightList(String[] params) {
             Set<String> res = new LinkedHashSet<>();
             if (params != null) {
                 for (String param : params) {
