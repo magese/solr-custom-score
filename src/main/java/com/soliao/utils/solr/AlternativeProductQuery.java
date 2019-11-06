@@ -148,8 +148,8 @@ public class AlternativeProductQuery extends CustomScoreQuery {
             List<String> customWeightFields = new ArrayList<>(Arrays.asList(customWeightArray));
             // 权重map
             Map<String, Double> weightMap = new LinkedHashMap<>();
-            weightMap.put("fillers", 15.0);
-            weightMap.put("fillersContent", 15.0);
+            weightMap.put("fillers", 10.0);
+            weightMap.put("fillersContent", 20.0);
             weightMap.put("rep_mfr", 20.0);
             weightMap.put("rep_mvr", 20.0);
             weightMap.put("rep_density", 10.0);
@@ -244,8 +244,8 @@ public class AlternativeProductQuery extends CustomScoreQuery {
 
             double similar;
             if (sub == 0) similar = 1;
-            else if (sub > limitValue) similar = 0;
-            else if (max != 0) similar = 1 - sub / limitValue;
+            else if (sub > max) similar = 0;
+            else if (max != 0) similar = 1 - sub / max;
             else similar = 0;
 
             return similar;
