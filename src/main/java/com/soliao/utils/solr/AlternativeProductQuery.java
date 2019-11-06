@@ -82,18 +82,20 @@ public class AlternativeProductQuery extends CustomScoreQuery {
 
                 Object beRep = queryParamMap.get(fieldName);
                 IndexableField rep = document.getField(fieldName);
-
+                // 填料检查
+                boolean fillersEquals = (beRep == null && rep == null) || (rep != null && rep.stringValue().equals(beRep));
+                // 空指针检查
+                boolean nullCheck = beRep != null && rep != null;
+                // 计算相似度
                 double similar = 0;
-                if ("fillers".equals(fieldName)) {
-                    if ((beRep == null && rep == null) || (rep != null && rep.stringValue().equals(beRep))) {
-                        similar = 1;
-                        fillersFlag = true;
-                    }
-                } else if ("fillersContent".equals(fieldName) && fillersFlag && (beRep == null && rep == null) || (rep != null && rep.stringValue().equals(beRep))) {
+                if ("fillers".equals(fieldName) && fillersEquals) {
                     similar = 1;
-                } else if ("rep_fr".equals(fieldName) && rep != null && Double.parseDouble((String) beRep) == rep.numericValue().doubleValue()) {
+                    fillersFlag = true;
+                } else if ("fillersContent".equals(fieldName) && fillersFlag && fillersEquals) {
                     similar = 1;
-                } else if (fieldName.startsWith("rep_") && rep != null) {
+                } else if ("rep_fr".equals(fieldName) && nullCheck && rep.numericValue().doubleValue() == Double.parseDouble((String) beRep)) {
+                    similar = 1;
+                } else if (fieldName.startsWith("rep_") && nullCheck) {
                     similar = getFieldSimilar(Double.parseDouble((String) beRep), rep.numericValue().doubleValue(), limitMap.get(fieldName));
                 }
 
